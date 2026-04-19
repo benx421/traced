@@ -1,0 +1,269 @@
+openapi: "3.1.0"
+
+info:
+  title: Traced API
+  version: "1.0.0"
+  description: |
+    The API your service must implement. The emitter will POST spans to your
+    service; the dashboard will query your service for traces.
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+paths:
+  /spans:
+    post:
+      summary: Ingest a batch of spans
+      description: |
+        Accept a batch of spans. Spans may arrive out of order (a child span
+        may arrive before its parent). Your service must handle this gracefully.
+
+        Spans whose start_time falls outside the configured rolling window
+        should be discarded silently (no error).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngestRequest"
+            example:
+              spans:
+                - trace_id: "550e8400-e29b-41d4-a716-446655440000"
+                  span_id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+                  service: "checkout"
+                  operation: "place_order"
+                  start_time: 1713484800000000000
+                  end_time: 1713484800150000000
+                  status: "ok"
+                  tags:
+                    order_id: "ord_123"
+                - trace_id: "550e8400-e29b-41d4-a716-446655440000"
+                  span_id: "6ba7b811-9dad-11d1-80b4-00c04fd430c8"
+                  parent_span_id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+                  service: "inventory"
+                  operation: "reserve_stock"
+                  start_time: 1713484800020000000
+                  end_time: 1713484800100000000
+                  status: "ok"
+      responses:
+        "202":
+          description: |
+            Accepted. Spans are durably stored and immediately queryable.
+            Internal async processing is allowed only if spans are readable before this response is sent.
+        "400":
+          description: Malformed request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /traces:
+    get:
+      summary: List recent traces
+      description: |
+        Return traces whose root span started within the rolling window,
+        ordered by start_time descending (most recent first).
+
+        Only return complete traces, i.e. traces where at least the root span
+        has been received.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of traces to return. Defaults to 20, max 100.
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: List of trace summaries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TraceListResponse"
+              example:
+                traces:
+                  - trace_id: "550e8400-e29b-41d4-a716-446655440000"
+                    root_service: "checkout"
+                    root_operation: "place_order"
+                    span_count: 4
+                    duration_ms: 150
+                    start_time: 1713484800000000000
+                    status: "ok"
+
+  /traces/{trace_id}:
+    get:
+      summary: Get all spans for a trace
+      description: |
+        Return all spans for the given trace, ordered by start_time ascending.
+        Returns 404 if the trace is not found or has fallen outside the rolling window.
+        Servers MUST validate that trace_id is a valid UUID (RFC 4122) and return 400 if it is not.
+      parameters:
+        - name: trace_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: All spans for the trace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TraceDetailResponse"
+              example:
+                trace_id: "550e8400-e29b-41d4-a716-446655440000"
+                spans:
+                  - trace_id: "550e8400-e29b-41d4-a716-446655440000"
+                    span_id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+                    service: "checkout"
+                    operation: "place_order"
+                    start_time: 1713484800000000000
+                    end_time: 1713484800150000000
+                    status: "ok"
+                    tags:
+                      order_id: "ord_123"
+        "400":
+          description: trace_id is not a valid UUID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Trace not found or outside rolling window
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  schemas:
+    Span:
+      type: object
+      required:
+        - trace_id
+        - span_id
+        - service
+        - operation
+        - start_time
+        - end_time
+        - status
+      properties:
+        trace_id:
+          type: string
+          format: uuid
+          description: Groups related spans into a single trace.
+        span_id:
+          type: string
+          format: uuid
+        parent_span_id:
+          type: string
+          format: uuid
+          description: Omitted for root spans (the first span in a trace).
+        service:
+          type: string
+          maxLength: 256
+          example: "checkout"
+        operation:
+          type: string
+          maxLength: 256
+          example: "place_order"
+        start_time:
+          type: integer
+          format: int64
+          description: Unix timestamp in nanoseconds.
+        end_time:
+          type: integer
+          format: int64
+          description: Unix timestamp in nanoseconds. Always >= start_time.
+        status:
+          type: string
+          enum: ["ok", "error"]
+        tags:
+          type: object
+          maxProperties: 50
+          additionalProperties:
+            type: string
+            maxLength: 1024
+          description: Arbitrary key-value metadata.
+
+    TraceSummary:
+      type: object
+      required:
+        - trace_id
+        - root_service
+        - root_operation
+        - span_count
+        - duration_ms
+        - start_time
+        - status
+      properties:
+        trace_id:
+          type: string
+          format: uuid
+        root_service:
+          type: string
+        root_operation:
+          type: string
+        span_count:
+          type: integer
+        duration_ms:
+          type: integer
+          description: "(root end_time - root start_time) / 1_000_000"
+        start_time:
+          type: integer
+          format: int64
+          description: start_time of the root span, in nanoseconds.
+        status:
+          type: string
+          enum: ["ok", "error"]
+          description: '"error" if any span in the trace has status "error", otherwise "ok".'
+
+    IngestRequest:
+      type: object
+      required:
+        - spans
+      properties:
+        spans:
+          type: array
+          items:
+            $ref: "#/components/schemas/Span"
+          minItems: 1
+          maxItems: 500
+
+    TraceListResponse:
+      type: object
+      required:
+        - traces
+      properties:
+        traces:
+          type: array
+          items:
+            $ref: "#/components/schemas/TraceSummary"
+
+    TraceDetailResponse:
+      type: object
+      required:
+        - trace_id
+        - spans
+      properties:
+        trace_id:
+          type: string
+          format: uuid
+        spans:
+          type: array
+          items:
+            $ref: "#/components/schemas/Span"
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          example: "invalid request body: missing required field span_id"

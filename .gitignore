@@ -1,0 +1,12 @@
+# Go binaries
+emitter/traced-emitter
+emitter/*.exe
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
