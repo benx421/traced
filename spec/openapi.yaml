@@ -12,6 +12,14 @@ servers:
     description: Local development
 
 paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns 200 OK when the server is ready to accept requests.
+      responses:
+        "200":
+          description: Server is healthy
+
   /spans:
     post:
       summary: Ingest a batch of spans
