@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/benx421/traced/emitter/internal/emitter"
+	"github.com/benx421/traced/emitter/internal/verifier"
 )
 
 func main() {
@@ -78,7 +79,10 @@ func run() error {
 	}
 
 	if *verify {
-		slog.Warn("verifier not yet implemented")
+		v := verifier.New(*target, *window, e.Sent())
+		if err := v.Run(); err != nil {
+			return err
+		}
 	}
 
 	return nil
