@@ -74,6 +74,8 @@ cp .env.example .env
 # Set TARGET_URL to your API, e.g. TARGET_URL=http://host.docker.internal:8080
 ```
 
+`TARGET_URL=http://localhost:8080` will not work. The emitter runs inside Docker, so `localhost` resolves to the container, not your machine. Use `host.docker.internal` on macOS and Windows. On Linux, use your host's IP address (`ip route | awk '/default/ { print $3 }'`).
+
 **With Make (macOS/Linux)**
 
 | Command | What it does |
@@ -126,6 +128,8 @@ INFO all checks passed
 ## The Dashboard
 
 Open [http://localhost:8081](http://localhost:8081) after `make up`. Enter your API's base URL and click **Connect**. The dashboard polls every 3 seconds. Each trace shows up as a dot on a scatter plot. Hover for a summary, click to inspect the full span tree.
+
+My frontend skills are rusty, so it's minimal. If you're comfortable with frontend work, replace it. Use React, add proper charting, build richer filtering, add new endpoints. The API contract is a starting point.
 
 ## Deliverables
 
