@@ -1,0 +1,29 @@
+name: traced
+
+networks:
+  traced:
+
+services:
+
+  nginx:
+    image: nginx:1.30.0-alpine3.23
+    ports:
+      - "8081:80"
+    volumes:
+      - ./dashboard/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./dashboard:/usr/share/nginx/html:ro
+      - ./spec/openapi.yaml:/spec/openapi.yaml:ro
+    networks:
+      - traced
+    restart: unless-stopped
+
+  emitter:
+    build:
+      context: ./emitter
+    env_file:
+      - path: .env
+    networks:
+      - traced
+    profiles:
+      - tools
+    restart: "no"

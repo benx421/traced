@@ -1,6 +1,14 @@
-# Go binaries
-emitter/traced-emitter
-emitter/*.exe
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+go.work
+go.work.sum
 
 # Editor
 .idea/
@@ -10,3 +18,6 @@ emitter/*.exe
 
 # OS
 .DS_Store
+
+# Local env
+.env

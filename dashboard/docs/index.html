@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Traced API Docs</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23111827'/><rect x='4' y='7' width='24' height='5' rx='2.5' fill='%233b82f6'/><rect x='8' y='15' width='15' height='4' rx='2' fill='%2322c55e'/><rect x='12' y='23' width='9' height='3.5' rx='1.75' fill='%2322c55e' opacity='.55'/></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    body { margin: 0; }
+
+    .scalar-app {
+      --scalar-color-accent: #3b82f6;
+      --scalar-font: 'Inter', system-ui, sans-serif;
+    }
+
+    /* Configure / Share / Deploy top toolbar */
+    .api-reference-toolbar { display: none !important; }
+    /* Generate MCP sidebar button */
+    .scalar-mcp-layer-link { display: none !important; }
+    /* Powered by Scalar footer */
+    a[href*="scalar.com"] { display: none !important; }
+  </style>
+</head>
+<body>
+  <script
+    id="api-reference"
+    data-url="/openapi.yaml"
+    data-configuration='{"theme":"default","hideDownloadButton":true,"showDeveloperTools":"never","agent":{"disabled":true},"hiddenClients":{"c":true,"clojure":true,"csharp":["restsharp"],"dart":true,"fsharp":true,"java":["okhttp","unirest"],"js":true,"kotlin":true,"node":["jquery","ofetch","unirest","undici","xhr"],"objc":true,"ocaml":true,"php":true,"powershell":true,"python":["aiohttp","httpx_async","httpx_sync","python3"],"r":true,"ruby":true,"rust":true,"shell":["httpie","wget"],"swift":true}}'></script>
+  <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.52.4"
+          integrity="sha384-tPvZsWUisjPSa5t4cFmEhJq3K4mfQ7uXu1jPs+Nkke/8etOBqVXEdg4uOlb0RzSU"
+          crossorigin="anonymous"></script>
+</body>
+</html>
