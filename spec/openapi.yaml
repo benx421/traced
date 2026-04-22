@@ -3,9 +3,13 @@ openapi: "3.1.0"
 info:
   title: Traced API
   version: "1.0.0"
-  description: |
-    The API your service must implement. The emitter will POST spans to your
-    service; the dashboard will query your service for traces.
+  description: This API accepts span batches from the emitter and serves trace data to the dashboard.
+
+tags:
+  - name: Ingest
+    description: Span ingestion.
+  - name: Traces
+    description: Trace queries.
 
 servers:
   - url: http://localhost:8080
@@ -15,20 +19,26 @@ paths:
   /health:
     get:
       summary: Health check
-      description: Returns 200 OK when the server is ready to accept requests.
+      description: Returns 200 when the server is ready to accept requests.
       responses:
         "200":
           description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+              example:
+                status: "ok"
 
   /spans:
     post:
+      tags: [Ingest]
       summary: Ingest a batch of spans
       description: |
-        Accept a batch of spans. Spans may arrive out of order (a child span
-        may arrive before its parent). Your service must handle this gracefully.
+        Ingests a batch of spans. Batches may contain child spans whose parent
+        has not yet arrived; these are accepted regardless.
 
-        Spans whose start_time falls outside the configured rolling window
-        should be discarded silently (no error).
+        Spans outside the rolling window are silently discarded, not rejected.
       requestBody:
         required: true
         content:
@@ -56,9 +66,13 @@ paths:
                   status: "ok"
       responses:
         "202":
-          description: |
-            Accepted. Spans are durably stored and immediately queryable.
-            Internal async processing is allowed only if spans are readable before this response is sent.
+          description: Accepted. Stale spans are discarded without error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+              example:
+                status: "ok"
         "400":
           description: Malformed request body
           content:
@@ -68,13 +82,14 @@ paths:
 
   /traces:
     get:
+      tags: [Traces]
       summary: List recent traces
       description: |
-        Return traces whose root span started within the rolling window,
-        ordered by start_time descending (most recent first).
+        Returns trace summaries within the rolling window, ordered by
+        `start_time` descending.
 
-        Only return complete traces, i.e. traces where at least the root span
-        has been received.
+        Only traces with a root span (a span with no `parent_span_id`) are
+        included. Orphaned child spans are not returned.
       parameters:
         - name: limit
           in: query
@@ -104,11 +119,13 @@ paths:
 
   /traces/{trace_id}:
     get:
+      tags: [Traces]
       summary: Get all spans for a trace
       description: |
-        Return all spans for the given trace, ordered by start_time ascending.
-        Returns 404 if the trace is not found or has fallen outside the rolling window.
-        Servers MUST validate that trace_id is a valid UUID (RFC 4122) and return 400 if it is not.
+        Returns all spans for the given trace, ordered by `start_time` ascending.
+
+        Returns 404 if the trace is not found or has fallen outside the window.
+        Returns 400 if `trace_id` is not a valid UUID (RFC 4122).
       parameters:
         - name: trace_id
           in: path
@@ -142,7 +159,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "404":
-          description: Trace not found or outside rolling window
+          description: Trace not found or outside the rolling window
           content:
             application/json:
               schema:
@@ -151,6 +168,9 @@ paths:
 components:
   schemas:
     Span:
+      description: |
+        A single unit of work within a trace. Spans share a trace_id and form
+        a tree through parent_span_id. The root span has no parent_span_id.
       type: object
       required:
         - trace_id
@@ -164,21 +184,24 @@ components:
         trace_id:
           type: string
           format: uuid
-          description: Groups related spans into a single trace.
+          description: Groups spans into a trace.
         span_id:
           type: string
           format: uuid
+          description: Unique identifier for this span.
         parent_span_id:
           type: string
           format: uuid
-          description: Omitted for root spans (the first span in a trace).
+          description: The span_id of the parent span. Absent on root spans.
         service:
           type: string
           maxLength: 256
+          description: Name of the service that produced this span.
           example: "checkout"
         operation:
           type: string
           maxLength: 256
+          description: Name of the operation being traced.
           example: "place_order"
         start_time:
           type: integer
@@ -191,15 +214,17 @@ components:
         status:
           type: string
           enum: ["ok", "error"]
+          description: Outcome of the operation.
         tags:
           type: object
           maxProperties: 50
           additionalProperties:
             type: string
             maxLength: 1024
-          description: Arbitrary key-value metadata.
+          description: Optional key-value metadata.
 
     TraceSummary:
+      description: Per-trace summary returned by GET /traces, derived from the root span.
       type: object
       required:
         - trace_id
@@ -213,12 +238,16 @@ components:
         trace_id:
           type: string
           format: uuid
+          description: The trace this summary belongs to.
         root_service:
           type: string
+          description: Service field of the root span.
         root_operation:
           type: string
+          description: Operation field of the root span.
         span_count:
           type: integer
+          description: Number of spans received for this trace.
         duration_ms:
           type: integer
           description: "(root end_time - root start_time) / 1_000_000"
@@ -232,28 +261,33 @@ components:
           description: '"error" if any span in the trace has status "error", otherwise "ok".'
 
     IngestRequest:
+      description: Request body for POST /spans.
       type: object
       required:
         - spans
       properties:
         spans:
           type: array
+          description: Batch of spans to ingest. At least one required.
           items:
             $ref: "#/components/schemas/Span"
           minItems: 1
           maxItems: 500
 
     TraceListResponse:
+      description: Response body for GET /traces.
       type: object
       required:
         - traces
       properties:
         traces:
           type: array
+          description: Trace summaries within the rolling window, ordered by start_time descending.
           items:
             $ref: "#/components/schemas/TraceSummary"
 
     TraceDetailResponse:
+      description: Response body for GET /traces/{trace_id}.
       type: object
       required:
         - trace_id
@@ -262,16 +296,30 @@ components:
         trace_id:
           type: string
           format: uuid
+          description: The trace these spans belong to.
         spans:
           type: array
+          description: All spans for the trace, ordered by start_time ascending.
           items:
             $ref: "#/components/schemas/Span"
 
+    StatusResponse:
+      description: Returned by endpoints with no resource to return.
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: ["ok"]
+
     Error:
+      description: Returned on 4xx responses.
       type: object
       required:
         - error
       properties:
         error:
           type: string
+          description: Human-readable error message.
           example: "invalid request body: missing required field span_id"
