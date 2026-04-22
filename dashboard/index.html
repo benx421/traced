@@ -14,13 +14,28 @@
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #374151; border-radius: 2px; }
+    .filter-btn {
+      padding: 0.125rem 0.5rem;
+      border-radius: 0.25rem;
+      font-size: 0.625rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #6b7280;
+      background: transparent;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: color 0.15s, background 0.15s, border-color 0.15s;
+    }
+    .filter-btn:hover  { color: #d1d5db; background: rgba(55,65,81,0.5); }
+    .filter-btn.active { color: #e5e7eb; background: #374151; border-color: #4b5563; }
+    #detail-panel { transition: height 0.2s ease; }
   </style>
 </head>
 <body class="bg-gray-950 text-gray-100 h-screen flex flex-col text-sm overflow-hidden">
 
   <header class="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800 bg-gray-900 flex-shrink-0">
     <div class="flex items-center gap-2 select-none">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <rect x="1" y="2"  width="14" height="3.5" rx="1.75" fill="#3b82f6"/>
         <rect x="3" y="7"  width="9"  height="3"   rx="1.5"  fill="#22c55e"/>
         <rect x="5" y="12" width="6"  height="2.5" rx="1.25" fill="#22c55e" opacity="0.55"/>
@@ -39,36 +54,68 @@
     <div id="status-pill"
       class="flex items-center gap-1.5 ml-1 px-2 py-1 rounded-full bg-gray-800 text-xs text-gray-500 select-none">
       <span id="status-dot" class="w-1.5 h-1.5 rounded-full bg-gray-600"></span>
-      <span id="status-text">connecting…</span>
+      <span id="status-text">disconnected</span>
     </div>
   </header>
 
-  <div class="flex flex-1 overflow-hidden">
+  <div class="flex items-center gap-4 px-4 py-1.5 border-b border-gray-800/60 bg-gray-900/40 flex-shrink-0 text-xs select-none">
+    <div class="flex items-center gap-1.5">
+      <span class="text-gray-600 uppercase tracking-wide" style="font-size:10px">traces</span>
+      <span id="stat-total" class="text-gray-300 tabular-nums">—</span>
+    </div>
+    <div class="w-px h-3 bg-gray-800"></div>
+    <div class="flex items-center gap-1.5">
+      <span class="text-gray-600 uppercase tracking-wide" style="font-size:10px">errors</span>
+      <span id="stat-errors" class="tabular-nums text-gray-400">—</span>
+    </div>
+    <div class="w-px h-3 bg-gray-800"></div>
+    <div class="flex items-center gap-1.5">
+      <span class="text-gray-600 uppercase tracking-wide" style="font-size:10px">avg</span>
+      <span id="stat-avg" class="text-gray-300 tabular-nums">—</span>
+    </div>
+    <div class="w-px h-3 bg-gray-800"></div>
+    <div class="flex items-center gap-1.5">
+      <span class="text-gray-600 uppercase tracking-wide" style="font-size:10px">p95</span>
+      <span id="stat-p95" class="text-gray-300 tabular-nums">—</span>
+    </div>
+  </div>
 
-    <aside class="w-72 flex-shrink-0 border-r border-gray-800 flex flex-col">
-      <div class="px-3 py-2 border-b border-gray-800 flex items-center justify-between flex-shrink-0">
-        <span class="text-xs text-gray-500 uppercase tracking-widest select-none">Traces</span>
-        <span id="trace-count" class="text-xs text-gray-600 tabular-nums"></span>
-      </div>
-      <div id="trace-list" class="flex-1 overflow-y-auto">
-        <div class="px-4 py-10 text-center text-gray-600 text-xs">Connecting…</div>
-      </div>
-    </aside>
+  <div class="flex items-center gap-2 px-4 py-1.5 border-b border-gray-800/60 flex-shrink-0">
+    <button class="filter-btn active" data-filter="all">All</button>
+    <button class="filter-btn" data-filter="ok">OK</button>
+    <button class="filter-btn" data-filter="error">Error</button>
+    <div class="ml-auto flex items-center gap-4 select-none pointer-events-none text-gray-600"
+         style="font-size:9px; font-family: ui-monospace, monospace">
+      <span class="flex items-center gap-1">
+        <span class="inline-block w-2 h-2 rounded-full bg-gray-500"></span>service color
+      </span>
+      <span class="flex items-center gap-1">
+        <span class="inline-block w-2 h-2 rounded-full bg-red-500"></span>error
+      </span>
+      <span>size = span count · y = duration</span>
+      <span class="text-gray-700">·</span>
+      <span>scroll to zoom · drag to pan · double-click to reset</span>
+    </div>
+  </div>
 
-    <main class="flex-1 flex flex-col overflow-hidden">
-      <div id="detail-header-bar"
-        class="px-4 py-2 border-b border-gray-800 flex items-center gap-2 flex-shrink-0 min-h-[36px]">
-        <span class="text-xs text-gray-500 uppercase tracking-widest select-none">Trace Detail</span>
-      </div>
-      <div id="trace-detail" class="flex-1 overflow-y-auto p-4">
-        <div class="text-center text-gray-600 text-xs py-10">Select a trace to inspect</div>
-      </div>
-    </main>
+  <div id="chart-container" class="flex-1 min-h-0 relative overflow-hidden">
+    <canvas id="chart-canvas" class="absolute inset-0 w-full h-full"></canvas>
+    <div id="chart-tooltip"
+         class="absolute hidden bg-gray-900 border border-gray-700 rounded px-2.5 py-2 text-xs pointer-events-none z-10 whitespace-nowrap"></div>
+  </div>
 
+  <div id="detail-panel" class="flex-shrink-0 border-t border-gray-800 flex flex-col overflow-hidden" style="height:0">
+    <div id="detail-header-bar"
+      class="px-4 py-2 border-b border-gray-800 flex items-center gap-2 flex-shrink-0 min-h-[36px]">
+      <span class="text-xs text-gray-500 uppercase tracking-widest select-none">Trace Detail</span>
+    </div>
+    <div id="trace-detail" class="flex-1 overflow-y-auto p-4 min-h-0">
+      <div class="text-center text-gray-600 text-xs py-10">Click a trace to inspect</div>
+    </div>
   </div>
 
   <div id="toast-container" class="fixed top-4 right-4 flex flex-col gap-2 z-50"></div>
 
-  <script src="js/app.js"></script>
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>

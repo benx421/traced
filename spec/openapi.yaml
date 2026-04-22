@@ -39,6 +39,11 @@ paths:
         has not yet arrived; these are accepted regardless.
 
         Spans outside the rolling window are silently discarded, not rejected.
+
+        A trace becomes visible in `GET /traces` as soon as its root span (a span
+        with no `parent_span_id`) is received. `span_count` on the resulting
+        `TraceSummary` reflects all spans received for that trace at query time,
+        including any children that arrived before the root.
       requestBody:
         required: true
         content:
@@ -90,16 +95,39 @@ paths:
 
         Only traces with a root span (a span with no `parent_span_id`) are
         included. Orphaned child spans are not returned.
+
+        A trace's `status` is `"error"` if any span in the trace has
+        `status: "error"`, even if the root span itself is `"ok"`.
       parameters:
         - name: limit
           in: query
           required: false
-          description: Maximum number of traces to return. Defaults to 20, max 100.
+          description: Maximum number of traces to return. Defaults to 20, max 1000.
           schema:
             type: integer
             default: 20
             minimum: 1
-            maximum: 100
+            maximum: 1000
+        - name: after
+          in: query
+          required: false
+          description: |
+            Return only traces whose root span `start_time` is >= this value.
+            Unix timestamp in nanoseconds. Must be less than `before` when both are provided.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: before
+          in: query
+          required: false
+          description: |
+            Return only traces whose root span `start_time` is < this value.
+            Unix timestamp in nanoseconds. Must be greater than `after` when both are provided.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
       responses:
         "200":
           description: List of trace summaries
@@ -108,6 +136,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/TraceListResponse"
               example:
+                total: 1
                 traces:
                   - trace_id: "550e8400-e29b-41d4-a716-446655440000"
                     root_service: "checkout"
@@ -116,6 +145,12 @@ paths:
                     duration_ms: 150
                     start_time: 1713484800000000000
                     status: "ok"
+        "400":
+          description: Invalid query parameter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /traces/{trace_id}:
     get:
@@ -279,12 +314,20 @@ components:
       type: object
       required:
         - traces
+        - total
       properties:
         traces:
           type: array
-          description: Trace summaries within the rolling window, ordered by start_time descending.
+          description: Trace summaries within the window (and time range, if filtered), ordered by start_time descending.
           items:
             $ref: "#/components/schemas/TraceSummary"
+        total:
+          type: integer
+          description: >-
+            Total number of traces in the rolling window that match the
+            `after`/`before` filter, before `limit` is applied.
+            When no time filters are provided this equals the total trace count
+            in the window.
 
     TraceDetailResponse:
       description: Response body for GET /traces/{trace_id}.

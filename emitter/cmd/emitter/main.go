@@ -24,7 +24,7 @@ func run() error {
 	target := flag.String("target", envString("TARGET_URL", "http://localhost:8080"),
 		"Base URL of the Traced API (env: TARGET_URL)")
 
-	workers := flag.Int("workers", envInt("WORKERS", 50),
+	workers := flag.Int("workers", envInt("WORKERS", 20),
 		"Number of concurrent worker goroutines (env: WORKERS)")
 
 	duration := flag.Duration("duration", envDuration("DURATION", 60*time.Second),
@@ -42,6 +42,9 @@ func run() error {
 	verify := flag.Bool("verify", envBool("VERIFY", true),
 		"Run the post-emission verifier when done (env: VERIFY)")
 
+	rate := flag.Float64("rate", envFloat("RATE_PER_WORKER", 5),
+		"Average requests/second per worker (env: RATE_PER_WORKER)")
+
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: emitter [flags]\n\n")
 		flag.PrintDefaults()
@@ -52,6 +55,7 @@ func run() error {
 	slog.Info("starting",
 		"target", *target,
 		"workers", *workers,
+		"rate_per_worker", *rate,
 		"duration", *duration,
 		"window_min", *window,
 		"disorder", *disorder,
@@ -67,6 +71,7 @@ func run() error {
 		OutOfOrderProb: *disorder,
 		BatchSize:      *batch,
 		Verify:         *verify,
+		RatePerWorker:  *rate,
 	}
 
 	e := emitter.New(cfg)

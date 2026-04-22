@@ -1,0 +1,12 @@
+export const STORAGE_KEY       = 'traced-target-url';
+export const DEFAULT_URL       = 'http://localhost:8080';
+export const POLL_INTERVAL_MS  = 3000;
+export const TRACE_LIMIT       = 1000;
+export const DEPTH_INDENT_PX   = 20;
+export const MIN_BAR_WIDTH_PCT = 0.5;
+export const MS_PER_SEC        = 1000;
+export const MS_PER_MIN        = 60_000;
+export const NS_PER_MS         = 1e6;
+export const PCT_SCALE         = 10000n;
+export const STATUS_OK         = 'ok';
+export const FETCH_TIMEOUT_MS  = 5000;

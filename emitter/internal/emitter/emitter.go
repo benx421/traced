@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"math/rand"
 	"net/http"
 	"sync"
@@ -26,6 +27,7 @@ type Config struct {
 	OutOfOrderProb float64 // probability [0,1) of shuffling spans within a batch
 	BatchSize      int
 	Verify         bool
+	RatePerWorker  float64 // average requests/second per worker (Poisson process)
 }
 
 // SentRecord holds metadata about a successfully dispatched trace.
@@ -36,9 +38,10 @@ type SentRecord struct {
 
 // Emitter orchestrates the worker pool and dispatches span batches to the target API.
 type Emitter struct {
-	cfg  Config
-	sent map[string]SentRecord // trace_id -> record; guarded by mu
-	mu   sync.Mutex
+	cfg    Config
+	sent   map[string]SentRecord // trace_id -> record; guarded by mu
+	mu     sync.Mutex
+	client *http.Client
 }
 
 // New constructs an Emitter with the given configuration.
@@ -46,6 +49,13 @@ func New(cfg Config) *Emitter {
 	return &Emitter{
 		cfg:  cfg,
 		sent: make(map[string]SentRecord),
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConnsPerHost: cfg.Workers,
+				IdleConnTimeout:     90 * time.Second,
+			},
+		},
 	}
 }
 
@@ -90,6 +100,7 @@ func (e *Emitter) Run(ctx context.Context) error {
 	)
 
 	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 	tickerDone := make(chan struct{})
 	go func() {
 		defer close(tickerDone)
@@ -117,7 +128,6 @@ func (e *Emitter) Run(ctx context.Context) error {
 	}
 
 	wg.Wait()
-	ticker.Stop()
 	<-tickerDone
 
 	slog.Info("done", "spans", totalSpans.Load(), "traces", totalTraces.Load())
@@ -131,27 +141,66 @@ func (e *Emitter) runWorker(
 	totalSpans *atomic.Int64,
 	totalTraces *atomic.Int64,
 ) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
+	backoff := 100 * time.Millisecond
+	const maxBackoff = 5 * time.Second
 
-		// Accumulate spans from multiple traces until we hit BatchSize.
+	// surgeUntil: worker fires at 4x rate until this time.
+	var surgeUntil time.Time
+
+	for {
+		// Assemble a batch, sleeping between each trace generation.
+		// This gives each span a real start_time that reflects when it was
+		// "generated".
 		var batch []span.Span
 		var traceIDs []string
 		var traceCounts []int
 		for len(batch) < e.cfg.BatchSize {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
 			spans := e.generateTrace(rng)
 			traceIDs = append(traceIDs, spans[0].TraceID)
 			traceCounts = append(traceCounts, len(spans))
 			batch = append(batch, spans...)
+
+			now := time.Now()
+			rate := e.cfg.RatePerWorker
+			if now.Before(surgeUntil) {
+				rate *= 4
+			} else if rng.Float64() < 0.05 {
+				surgeUntil = now.Add(time.Duration(2000+rng.Intn(4000)) * time.Millisecond)
+			}
+			meanNs := float64(time.Second) / rate
+			sleep := time.Duration(-math.Log(rng.Float64()) * meanNs)
+			t := time.NewTimer(sleep)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return
+			case <-t.C:
+			}
 		}
 
 		if err := e.postSpans(ctx, batch); err != nil {
+			slog.Warn("post failed", "err", err)
+			jitter := time.Duration(rng.Int63n(int64(backoff)))
+			bt := time.NewTimer(backoff + jitter)
+			select {
+			case <-ctx.Done():
+				bt.Stop()
+				return
+			case <-bt.C:
+			}
+			if backoff < maxBackoff {
+				backoff *= 2
+			}
 			continue
 		}
+
+		backoff = 100 * time.Millisecond
 
 		now := time.Now()
 		e.mu.Lock()
@@ -169,7 +218,7 @@ func (e *Emitter) generateTrace(rng *rand.Rand) []span.Span {
 	traceID := uuid.New().String()
 
 	rootOp := pickServiceOp(rng)
-	rootStart := time.Now().Add(-(time.Duration(rng.Intn(2000)) * time.Millisecond))
+	rootStart := time.Now()
 	rootDurationMs := 50 + rng.Intn(451) // [50, 500]
 	rootEnd := rootStart.Add(time.Duration(rootDurationMs) * time.Millisecond)
 
@@ -191,12 +240,10 @@ func (e *Emitter) generateTrace(rng *rand.Rand) []span.Span {
 	for range childCount {
 		childOp := pickServiceOp(rng)
 
-		// Child starts at a random offset within the root's duration.
 		maxOffsetMs := rootDurationMs
 		childOffsetMs := rng.Intn(maxOffsetMs + 1)
 		childStart := rootStart.Add(time.Duration(childOffsetMs) * time.Millisecond)
 
-		// Child duration: at most what remains of the root window.
 		remainingMs := rootDurationMs - childOffsetMs
 		childDurationMs := 10
 		if remainingMs > 10 {
@@ -253,7 +300,7 @@ func (e *Emitter) postSpans(ctx context.Context, spans []span.Span) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := e.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("post /spans: %w", err)
 	}
